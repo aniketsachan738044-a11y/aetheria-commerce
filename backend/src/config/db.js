@@ -12,8 +12,8 @@ export const connectDB = async () => {
   const primaryURI = process.env.MONGODB_URI;
 
   try {
-    if (!primaryURI) {
-      throw new Error('MONGODB_URI is not defined in environment variables.');
+    if (!primaryURI || primaryURI.includes('<username>') || primaryURI === 'memory') {
+      throw new Error('Using cloud in-memory fallback database.');
     }
 
     // Try connecting with a 2-second timeout
@@ -24,13 +24,8 @@ export const connectDB = async () => {
 
     console.log(`[Database] MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
   } catch (error) {
-    if (process.env.NODE_ENV === 'production') {
-      console.error(`[Database Error] Connection failed: ${error.message}`);
-      process.exit(1);
-    }
-
     console.warn(`[Database Notice] Could not connect to primary MongoDB (${error.message}).`);
-    console.log(`[Database] Starting integrated in-memory MongoDB development server...`);
+    console.log(`[Database] Starting integrated in-memory MongoDB server...`);
 
     mongodInstance = await MongoMemoryServer.create();
     const memUri = mongodInstance.getUri();
