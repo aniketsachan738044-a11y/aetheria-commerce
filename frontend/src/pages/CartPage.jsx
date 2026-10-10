@@ -1,19 +1,118 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { sanitize } from '../utils/sanitize';
 import { formatINR } from '../utils/formatCurrency';
-import { Trash2, ArrowRight, ShoppingBag, ArrowLeft, Truck } from 'lucide-react';
+import api from '../services/api';
+import {
+  Trash2,
+  ArrowRight,
+  ShoppingBag,
+  ArrowLeft,
+  Truck,
+  Tag,
+  CheckCircle,
+  XCircle,
+} from 'lucide-react';
+
+const SUGGESTED_COUPONS = [
+  { code: 'WELCOME10', label: '10% OFF (Above ₹500)' },
+  { code: 'AETHERIA500', label: 'Flat ₹500 OFF (Above ₹2,499)' },
+  { code: 'FESTIVE20', label: '20% Festive Savings (Above ₹1,500)' },
+  { code: 'FREESHIP', label: 'Free Delivery' },
+];
 
 export default function CartPage() {
   const { cart, updateQuantity, removeFromCart, clearCart, loading } = useCart();
   const navigate = useNavigate();
 
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
   const items = cart?.items || [];
   const subtotal = cart?.totalAmount || 0;
-  const shipping = subtotal >= 999 ? 0 : 99; // Free shipping in India on orders >= ₹999
-  const estimatedGst = Math.round(subtotal * 0.18); // 18% GST
-  const total = subtotal + shipping + estimatedGst;
+
+  // Calculate delivery & discounts
+  let shipping = subtotal >= 999 ? 0 : 99;
+  let discount = 0;
+
+  if (appliedCoupon) {
+    if (appliedCoupon.type === 'shipping') {
+      shipping = 0;
+      discount = 99;
+    } else {
+      discount = appliedCoupon.discount || 0;
+    }
+  }
+
+  const taxableBase = Math.max(0, subtotal - discount);
+  const estimatedGst = Math.round(taxableBase * 0.18);
+  const total = taxableBase + shipping + estimatedGst;
+
+  const handleApplyCoupon = async (codeToApply) => {
+    const code = (codeToApply || couponCode).toUpperCase().trim();
+    if (!code) return;
+
+    setCouponLoading(true);
+    setCouponError('');
+
+    try {
+      const res = await api.post('/coupons/validate', {
+        code,
+        subtotal,
+      });
+
+      if (res.data?.data) {
+        setAppliedCoupon(res.data.data);
+        setCouponCode('');
+      }
+    } catch (err) {
+      // Local fallback calculation if offline
+      if (code === 'WELCOME10' && subtotal >= 500) {
+        setAppliedCoupon({
+          code: 'WELCOME10',
+          discount: Math.min(Math.round(subtotal * 0.1), 1000),
+          type: 'percentage',
+        });
+        setCouponCode('');
+      } else if (code === 'AETHERIA500' && subtotal >= 2499) {
+        setAppliedCoupon({ code: 'AETHERIA500', discount: 500, type: 'flat' });
+        setCouponCode('');
+      } else if (code === 'FESTIVE20' && subtotal >= 1500) {
+        setAppliedCoupon({
+          code: 'FESTIVE20',
+          discount: Math.min(Math.round(subtotal * 0.2), 2000),
+          type: 'percentage',
+        });
+        setCouponCode('');
+      } else if (code === 'FREESHIP') {
+        setAppliedCoupon({ code: 'FREESHIP', discount: 99, type: 'shipping' });
+        setCouponCode('');
+      } else {
+        setCouponError(
+          err.response?.data?.message || err.message || 'Invalid or unapplicable coupon code.'
+        );
+      }
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError('');
+  };
+
+  const handleProceedToCheckout = () => {
+    navigate('/checkout', {
+      state: {
+        appliedCoupon: appliedCoupon ? appliedCoupon.code : null,
+      },
+    });
+  };
 
   if (loading) {
     return (
@@ -113,46 +212,134 @@ export default function CartPage() {
           })}
         </div>
 
-        {/* Order Summary */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 h-fit shadow-sm space-y-5">
-          <h2 className="text-lg font-bold text-slate-900">Price Details</h2>
+        {/* Order Summary & Coupons */}
+        <div className="space-y-6">
+          {/* Coupon Box */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+              <Tag className="w-4 h-4 text-indigo-600" />
+              <span>Have a Promo Coupon?</span>
+            </h3>
 
-          <div className="space-y-3 text-sm text-slate-600 border-b border-slate-100 pb-5">
-            <div className="flex justify-between">
-              <span>Bag Subtotal</span>
-              <span className="font-semibold text-slate-800">{formatINR(subtotal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="flex items-center">
-                <span>Delivery Charges</span>
-                {shipping === 0 && <Truck className="w-3.5 h-3.5 ml-1 text-emerald-600" />}
-              </span>
-              <span className="font-semibold text-slate-800">
-                {shipping === 0 ? <span className="text-emerald-600 font-bold">FREE (Above ₹999)</span> : formatINR(shipping)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Estimated GST (18%)</span>
-              <span className="font-semibold text-slate-800">{formatINR(estimatedGst)}</span>
-            </div>
+            {appliedCoupon ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-emerald-800 text-xs flex items-center">
+                    <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                    {appliedCoupon.code} Applied
+                  </span>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">
+                    Saved {formatINR(discount)} on this order
+                  </p>
+                </div>
+                <button
+                  onClick={handleRemoveCoupon}
+                  className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value)}
+                    placeholder="Enter coupon code..."
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs uppercase focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => handleApplyCoupon()}
+                    disabled={couponLoading || !couponCode.trim()}
+                    className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all disabled:opacity-40"
+                  >
+                    {couponLoading ? '...' : 'Apply'}
+                  </button>
+                </div>
+
+                {couponError && (
+                  <p className="text-xs text-red-600 flex items-center">
+                    <XCircle className="w-3.5 h-3.5 mr-1 shrink-0" />
+                    <span>{couponError}</span>
+                  </p>
+                )}
+
+                {/* Available Quick Chips */}
+                <div className="pt-2">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Available Offers:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SUGGESTED_COUPONS.map((sc) => (
+                      <button
+                        key={sc.code}
+                        onClick={() => handleApplyCoupon(sc.code)}
+                        className="text-[10px] font-bold border border-indigo-200 bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        {sc.code}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="flex justify-between items-center text-base font-extrabold text-slate-900">
-            <span>Total Amount</span>
-            <span className="text-2xl text-indigo-600">{formatINR(total)}</span>
+          {/* Pricing Breakdown */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+            <h2 className="text-lg font-bold text-slate-900">Price Details</h2>
+
+            <div className="space-y-3 text-sm text-slate-600 border-b border-slate-100 pb-5">
+              <div className="flex justify-between">
+                <span>Bag Subtotal</span>
+                <span className="font-semibold text-slate-800">{formatINR(subtotal)}</span>
+              </div>
+
+              {discount > 0 && (
+                <div className="flex justify-between text-emerald-600 font-semibold">
+                  <span>Coupon Discount</span>
+                  <span>- {formatINR(discount)}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between">
+                <span className="flex items-center">
+                  <span>Delivery Charges</span>
+                  {shipping === 0 && <Truck className="w-3.5 h-3.5 ml-1 text-emerald-600" />}
+                </span>
+                <span className="font-semibold text-slate-800">
+                  {shipping === 0 ? (
+                    <span className="text-emerald-600 font-bold">FREE</span>
+                  ) : (
+                    formatINR(shipping)
+                  )}
+                </span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Estimated GST (18%)</span>
+                <span className="font-semibold text-slate-800">{formatINR(estimatedGst)}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center text-base font-extrabold text-slate-900">
+              <span>Total Amount</span>
+              <span className="text-2xl text-indigo-600">{formatINR(total)}</span>
+            </div>
+
+            <button
+              onClick={handleProceedToCheckout}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transition-all"
+            >
+              <span>Proceed to Buy</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <p className="text-center text-[11px] text-slate-400">
+              Secure checkout powered by simulated UPI & NetBanking.
+            </p>
           </div>
-
-          <button
-            onClick={() => navigate('/checkout')}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transition-all"
-          >
-            <span>Proceed to Buy</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-
-          <p className="text-center text-[11px] text-slate-400">
-            Secure checkout powered by simulated UPI & NetBanking.
-          </p>
         </div>
       </div>
     </div>

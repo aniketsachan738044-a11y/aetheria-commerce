@@ -1,6 +1,7 @@
 import { Order } from '../models/Order.js';
 import { Cart } from '../models/Cart.js';
 import { Product } from '../models/Product.js';
+import { User } from '../models/User.js';
 
 /**
  * @desc    Create new order from current user's cart (Simulated payment)
@@ -9,7 +10,7 @@ import { Product } from '../models/Product.js';
  */
 export const createOrder = async (req, res) => {
   try {
-    const { shippingAddress } = req.body;
+    const { shippingAddress, couponCode } = req.body;
 
     const cart = await Cart.findOne({ user: req.user._id }).populate('items.product');
 
@@ -57,9 +58,26 @@ export const createOrder = async (req, res) => {
 
     // Pricing calculation (INR)
     itemsPrice = Math.round(itemsPrice);
-    const shippingPrice = itemsPrice >= 999 ? 0 : 99; // Free delivery across India on orders >= ₹999
-    const taxPrice = Math.round(itemsPrice * 0.18); // 18% GST (Standard Indian Consumer Electronics / Goods rate)
-    const totalPrice = itemsPrice + shippingPrice + taxPrice;
+    let shippingPrice = itemsPrice >= 999 ? 0 : 99; // Free delivery across India on orders >= ₹999
+    let discountPrice = 0;
+
+    // Apply coupon rules
+    if (couponCode) {
+      const code = couponCode.toUpperCase().trim();
+      if (code === 'WELCOME10' && itemsPrice >= 500) {
+        discountPrice = Math.min(Math.round(itemsPrice * 0.1), 1000);
+      } else if (code === 'AETHERIA500' && itemsPrice >= 2499) {
+        discountPrice = 500;
+      } else if (code === 'FESTIVE20' && itemsPrice >= 1500) {
+        discountPrice = Math.min(Math.round(itemsPrice * 0.2), 2000);
+      } else if (code === 'FREESHIP') {
+        shippingPrice = 0;
+      }
+    }
+
+    const discountedBase = Math.max(0, itemsPrice - discountPrice);
+    const taxPrice = Math.round(discountedBase * 0.18); // 18% GST on taxable base
+    const totalPrice = discountedBase + shippingPrice + taxPrice;
 
     // Create Order with simulated payment marked paid
     const order = await Order.create({
@@ -75,6 +93,8 @@ export const createOrder = async (req, res) => {
       itemsPrice,
       shippingPrice,
       taxPrice,
+      discountPrice,
+      couponCode: couponCode ? couponCode.toUpperCase().trim() : null,
       totalPrice,
       isPaid: true,
       paidAt: new Date(),
@@ -178,6 +198,88 @@ export const getAllOrders = async (req, res) => {
     return res.status(500).json({
       status: 'error',
       message: 'Failed to retrieve all orders.',
+    });
+  }
+};
+
+/**
+ * @desc    Update order status (Admin only)
+ * @route   PUT /api/orders/:id/status
+ * @access  Private/Admin
+ */
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const validStatuses = ['Processing', 'Shipped', 'Delivered', 'Cancelled'];
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
+      });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Order not found.',
+      });
+    }
+
+    order.status = status;
+    await order.save();
+
+    return res.status(200).json({
+      status: 'success',
+      message: `Order status updated to ${status}`,
+      data: { order },
+    });
+  } catch (error) {
+    console.error(`[Update Order Status Error]: ${error.message}`);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to update order status.',
+    });
+  }
+};
+
+/**
+ * @desc    Get admin business stats & inventory alerts
+ * @route   GET /api/orders/admin/stats
+ * @access  Private/Admin
+ */
+export const getAdminStats = async (req, res) => {
+  try {
+    const [totalOrders, orders, totalProducts, totalUsers, lowStockProducts] = await Promise.all([
+      Order.countDocuments(),
+      Order.find({}).select('totalPrice status createdAt items'),
+      Product.countDocuments(),
+      User.countDocuments(),
+      Product.find({ stock: { $lte: 5 } }).select('name price stock category image'),
+    ]);
+
+    const totalRevenue = orders.reduce((acc, o) => acc + (o.totalPrice || 0), 0);
+    const pendingOrders = orders.filter((o) => o.status === 'Processing').length;
+    const deliveredOrders = orders.filter((o) => o.status === 'Delivered').length;
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        totalRevenue,
+        totalOrders,
+        totalProducts,
+        totalUsers,
+        pendingOrders,
+        deliveredOrders,
+        lowStockProducts,
+      },
+    });
+  } catch (error) {
+    console.error(`[Admin Stats Error]: ${error.message}`);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to retrieve admin stats.',
     });
   }
 };

@@ -1,15 +1,25 @@
 import React from 'react';
 import { formatINR } from '../utils/formatCurrency';
 import { Link } from 'react-router-dom';
-import { Star, ShoppingCart } from 'lucide-react';
+import { Star, ShoppingCart, Heart } from 'lucide-react';
 import { sanitize } from '../utils/sanitize';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
+import { useWishlist } from '../context/WishlistContext';
 
 export default function ProductCard({ product }) {
   const { addToCart } = useCart();
   const { isAuthenticated } = useAuth();
+  const { isInWishlist, toggleWishlist } = useWishlist();
   const [adding, setAdding] = React.useState(false);
+
+  const isFavorited = isInWishlist(product._id);
+
+  const handleToggleWishlist = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await toggleWishlist(product);
+  };
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -28,7 +38,7 @@ export default function ProductCard({ product }) {
   };
 
   return (
-    <div className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col overflow-hidden">
+    <div className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col overflow-hidden relative">
       {/* Product Image */}
       <Link to={`/products/${product._id}`} className="relative block aspect-square overflow-hidden bg-slate-100">
         <img
@@ -37,7 +47,21 @@ export default function ProductCard({ product }) {
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           loading="lazy"
         />
-        <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full text-xs font-semibold text-slate-800 shadow-sm">
+
+        {/* Wishlist Heart Toggle */}
+        <button
+          onClick={handleToggleWishlist}
+          className={`absolute top-3 left-3 p-2 rounded-full backdrop-blur-md transition-all shadow-sm ${
+            isFavorited
+              ? 'bg-pink-50 text-pink-600 hover:bg-pink-100'
+              : 'bg-white/80 text-slate-400 hover:text-pink-600 hover:bg-white'
+          }`}
+          title={isFavorited ? 'Remove from wishlist' : 'Add to wishlist'}
+        >
+          <Heart className={`w-4 h-4 ${isFavorited ? 'fill-pink-600' : ''}`} />
+        </button>
+
+        <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-full text-xs font-semibold text-slate-800 shadow-sm capitalize">
           {sanitize(product.category)}
         </div>
       </Link>

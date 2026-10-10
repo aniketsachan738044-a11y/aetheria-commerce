@@ -24,9 +24,37 @@ export const getProducts = async (req, res) => {
       query.$or = [{ name: keywordRegex }, { description: keywordRegex }];
     }
 
+    // Filter by price range
+    if (req.query.minPrice !== undefined || req.query.maxPrice !== undefined) {
+      query.price = {};
+      if (req.query.minPrice !== undefined && req.query.minPrice !== '') {
+        query.price.$gte = Number(req.query.minPrice);
+      }
+      if (req.query.maxPrice !== undefined && req.query.maxPrice !== '') {
+        query.price.$lte = Number(req.query.maxPrice);
+      }
+    }
+
+    // Filter by in-stock status
+    if (req.query.inStock === 'true') {
+      query.stock = { $gt: 0 };
+    }
+
+    // Dynamic sort
+    let sortOption = { createdAt: -1 };
+    if (req.query.sortBy === 'price_asc') {
+      sortOption = { price: 1 };
+    } else if (req.query.sortBy === 'price_desc') {
+      sortOption = { price: -1 };
+    } else if (req.query.sortBy === 'rating') {
+      sortOption = { rating: -1, numReviews: -1 };
+    } else if (req.query.sortBy === 'newest') {
+      sortOption = { createdAt: -1 };
+    }
+
     const total = await Product.countDocuments(query);
     const products = await Product.find(query)
-      .sort({ createdAt: -1 })
+      .sort(sortOption)
       .skip(skip)
       .limit(limit);
 
@@ -178,6 +206,70 @@ export const deleteProduct = async (req, res) => {
     return res.status(500).json({
       status: 'error',
       message: 'Failed to delete product.',
+    });
+  }
+};
+
+/**
+ * @desc    Create new review for a product
+ * @route   POST /api/products/:id/reviews
+ * @access  Private
+ */
+export const createProductReview = async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
+    const product = await Product.findById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Product not found.',
+      });
+    }
+
+    // Check if user already reviewed
+    const alreadyReviewed = product.reviews.find(
+      (r) => r.user.toString() === req.user._id.toString()
+    );
+
+    if (alreadyReviewed) {
+      // Update their existing review
+      alreadyReviewed.rating = Number(rating);
+      alreadyReviewed.comment = comment.trim();
+    } else {
+      const review = {
+        name: req.user.name,
+        rating: Number(rating),
+        comment: comment.trim(),
+        user: req.user._id,
+      };
+      product.reviews.push(review);
+    }
+
+    product.numReviews = product.reviews.length;
+    product.rating = Number(
+      (
+        product.reviews.reduce((acc, item) => item.rating + acc, 0) /
+        product.reviews.length
+      ).toFixed(1)
+    );
+
+    await product.save();
+
+    return res.status(201).json({
+      status: 'success',
+      message: 'Review submitted successfully',
+      data: {
+        rating: product.rating,
+        numReviews: product.numReviews,
+        reviews: product.reviews,
+      },
+    });
+  } catch (error) {
+    console.error(`[Create Review Error]: ${error.message}`);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to submit review.',
     });
   }
 };

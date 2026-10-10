@@ -88,6 +88,16 @@ const orderSchema = new mongoose.Schema(
       default: 0.0,
       min: [0, 'Tax price cannot be negative'],
     },
+    discountPrice: {
+      type: Number,
+      default: 0.0,
+      min: [0, 'Discount price cannot be negative'],
+    },
+    couponCode: {
+      type: String,
+      default: null,
+      trim: true,
+    },
     totalPrice: {
       type: Number,
       required: true,
@@ -101,6 +111,10 @@ const orderSchema = new mongoose.Schema(
     paidAt: {
       type: Date,
       default: Date.now,
+    },
+    trackingNumber: {
+      type: String,
+      default: () => `DEL-${Math.floor(10000000 + Math.random() * 90000000)}`,
     },
     status: {
       type: String,

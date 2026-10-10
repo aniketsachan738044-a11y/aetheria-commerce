@@ -5,6 +5,7 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  createProductReview,
 } from '../controllers/productController.js';
 import {
   createProductValidator,
@@ -20,6 +21,9 @@ const router = express.Router();
 // Public routes
 router.get('/', listProductQueryValidator, validate, getProducts);
 router.get('/:id', productIdValidator, validate, getProductById);
+
+// Customer review route
+router.post('/:id/reviews', authenticate, productIdValidator, validate, createProductReview);
 
 // Admin-only protected routes
 router.post(

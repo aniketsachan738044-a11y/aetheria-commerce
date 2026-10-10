@@ -204,13 +204,20 @@ export const indianMarketProducts = [
 ];
 
 export const seedInMemory = async () => {
-  await Product.deleteMany({});
-  await Product.insertMany(indianMarketProducts);
-
   const adminAccounts = [
     { name: 'Aetheria Admin', email: 'admin@aetheria.in', password: 'AdminPass123!', role: 'admin' },
     { name: 'System Admin', email: 'admin@codealpha.com', password: 'AdminPass123!', role: 'admin' },
   ];
+
+  let sampleUser = await User.findOne({ email: 'customer@aetheria.in' });
+  if (!sampleUser) {
+    sampleUser = await User.create({
+      name: 'Rohan Mehra',
+      email: 'customer@aetheria.in',
+      password: 'UserPass123!',
+      role: 'customer',
+    });
+  }
 
   for (const acc of adminAccounts) {
     const exists = await User.findOne({ email: acc.email });
@@ -218,4 +225,27 @@ export const seedInMemory = async () => {
       await User.create(acc);
     }
   }
+
+  await Product.deleteMany({});
+  const productsWithReviews = indianMarketProducts.map((p) => ({
+    ...p,
+    reviews: [
+      {
+        user: sampleUser._id,
+        name: 'Rohan Mehra',
+        rating: 5,
+        comment: 'Outstanding performance and immaculate finishing. Arrived within 48 hours via BlueDart express.',
+        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      },
+      {
+        user: sampleUser._id,
+        name: 'Neha Kapoor',
+        rating: 4,
+        comment: 'Superb value for money. GST invoice was generated seamlessly and packaging was pristine.',
+        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      },
+    ],
+  }));
+
+  await Product.insertMany(productsWithReviews);
 };

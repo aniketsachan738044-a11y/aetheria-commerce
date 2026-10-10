@@ -4,6 +4,8 @@ import {
   getMyOrders,
   getOrderById,
   getAllOrders,
+  updateOrderStatus,
+  getAdminStats,
 } from '../controllers/orderController.js';
 import {
   createOrderValidator,
@@ -17,12 +19,14 @@ const router = express.Router();
 // All order endpoints require authentication
 router.use(authenticate);
 
+// Admin-only endpoints
+router.get('/admin/stats', authorize('admin'), getAdminStats);
+router.get('/', authorize('admin'), getAllOrders);
+router.put('/:id/status', authorize('admin'), orderIdValidator, validate, updateOrderStatus);
+
 // Customer endpoints
 router.post('/', createOrderValidator, validate, createOrder);
 router.get('/myorders', getMyOrders);
 router.get('/:id', orderIdValidator, validate, getOrderById);
-
-// Admin-only endpoint
-router.get('/', authorize('admin'), getAllOrders);
 
 export default router;

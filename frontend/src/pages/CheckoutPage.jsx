@@ -1,14 +1,28 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import api from '../services/api';
 import { formatINR } from '../utils/formatCurrency';
-import { ShieldCheck, CheckCircle2, Lock, Smartphone } from 'lucide-react';
+import InvoiceModal from '../components/InvoiceModal';
+import {
+  ShieldCheck,
+  CheckCircle2,
+  Lock,
+  Smartphone,
+  CreditCard,
+  Building2,
+  Printer,
+  FileText,
+  Tag,
+} from 'lucide-react';
 
 export default function CheckoutPage() {
   const { cart, refreshCart } = useCart();
   const navigate = useNavigate();
+  const location = useLocation();
 
+  const [paymentMethod, setPaymentMethod] = useState('UPI'); // 'UPI' | 'Card' | 'NetBanking'
+  const [couponCode, setCouponCode] = useState(location.state?.appliedCoupon || '');
   const [address, setAddress] = useState({
     street: 'Plot No. 42, Hitech City Main Road, Madhapur',
     city: 'Hyderabad',
@@ -19,12 +33,29 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [orderComplete, setOrderComplete] = useState(null);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
   const items = cart?.items || [];
   const subtotal = cart?.totalAmount || 0;
-  const shipping = subtotal >= 999 ? 0 : 99;
-  const gst = Math.round(subtotal * 0.18);
-  const total = subtotal + shipping + gst;
+
+  // Calculate pricing with coupon discount
+  let discount = 0;
+  let shipping = subtotal >= 999 ? 0 : 99;
+
+  if (couponCode === 'WELCOME10' && subtotal >= 500) {
+    discount = Math.min(Math.round(subtotal * 0.1), 1000);
+  } else if (couponCode === 'AETHERIA500' && subtotal >= 2499) {
+    discount = 500;
+  } else if (couponCode === 'FESTIVE20' && subtotal >= 1500) {
+    discount = Math.min(Math.round(subtotal * 0.2), 2000);
+  } else if (couponCode === 'FREESHIP') {
+    shipping = 0;
+    discount = 99;
+  }
+
+  const taxableBase = Math.max(0, subtotal - discount);
+  const gst = Math.round(taxableBase * 0.18);
+  const total = taxableBase + shipping + gst;
 
   const handleChange = (e) => {
     setAddress({ ...address, [e.target.name]: e.target.value });
@@ -38,9 +69,10 @@ export default function CheckoutPage() {
     try {
       const res = await api.post('/orders', {
         shippingAddress: address,
+        couponCode: couponCode || undefined,
       });
       await refreshCart();
-      setOrderComplete(res.data.order);
+      setOrderComplete(res.data.data ? res.data.data.order : res.data.order);
     } catch (err) {
       setError(err.message || 'Failed to submit order.');
     } finally {
@@ -50,12 +82,12 @@ export default function CheckoutPage() {
 
   if (orderComplete) {
     return (
-      <div className="max-w-xl mx-auto px-4 py-20 text-center">
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center">
         <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-5 shadow-sm">
           <CheckCircle2 className="w-10 h-10" />
         </div>
         <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">
-          Payment Confirmed (Simulated UPI)
+          Payment Confirmed ({paymentMethod} Mode)
         </span>
         <h2 className="text-3xl font-extrabold text-slate-900 mt-3 mb-2">Order Successfully Placed!</h2>
         <p className="text-slate-500 text-sm mb-6">
@@ -63,35 +95,56 @@ export default function CheckoutPage() {
           <span className="font-mono text-slate-800 font-semibold block mt-1">{orderComplete._id}</span>
         </p>
 
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 mb-8 text-left text-sm space-y-2">
+        <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 mb-8 text-left text-sm space-y-3">
           <div className="flex justify-between">
-            <span className="text-slate-500">UPI Ref / Txn ID:</span>
-            <span className="font-mono font-medium text-slate-700">{orderComplete.paymentResult.id}</span>
+            <span className="text-slate-500">Txn / Payment Ref:</span>
+            <span className="font-mono font-medium text-slate-700">
+              {orderComplete.paymentResult?.id || 'SIM_TXN'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Tracking AWB:</span>
+            <span className="font-mono font-bold text-slate-900">
+              {orderComplete.trackingNumber || 'DEL-88392193'}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-slate-500">Total Paid:</span>
-            <span className="font-bold text-slate-900">{formatINR(orderComplete.totalPrice)}</span>
+            <span className="font-bold text-indigo-600 text-base">
+              {formatINR(orderComplete.totalPrice)}
+            </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Delivery Status:</span>
-            <span className="font-semibold text-emerald-600">Dispatched via BlueDart / Delhivery (Simulated)</span>
+            <span className="text-slate-500">Fulfillment Status:</span>
+            <span className="font-semibold text-emerald-600">Dispatched via BlueDart / Delhivery</span>
           </div>
         </div>
 
-        <div className="flex justify-center space-x-4">
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            onClick={() => setShowInvoiceModal(true)}
+            className="flex items-center space-x-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold px-5 py-3 rounded-2xl shadow-sm transition-all text-xs"
+          >
+            <FileText className="w-4 h-4 text-indigo-400" />
+            <span>Download GST Invoice</span>
+          </button>
           <button
             onClick={() => navigate('/dashboard')}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-2xl shadow-sm transition-all"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-3 rounded-2xl shadow-sm transition-all text-xs"
           >
             Track in Orders
           </button>
           <button
             onClick={() => navigate('/')}
-            className="border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold px-6 py-3 rounded-2xl transition-all"
+            className="border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold px-5 py-3 rounded-2xl transition-all text-xs"
           >
             Continue Shopping
           </button>
         </div>
+
+        {showInvoiceModal && (
+          <InvoiceModal order={orderComplete} onClose={() => setShowInvoiceModal(false)} />
+        )}
       </div>
     );
   }
@@ -112,11 +165,11 @@ export default function CheckoutPage() {
       )}
 
       <form onSubmit={handleSubmitOrder} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        {/* Shipping Form */}
+        {/* Shipping Form & Payment Selection */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
             <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center space-x-2">
-              <span>Delivery Address (India)</span>
+              <span>Delivery Address (Pan-India)</span>
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -128,7 +181,7 @@ export default function CheckoutPage() {
                   required
                   value={address.street}
                   onChange={handleChange}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
@@ -140,7 +193,7 @@ export default function CheckoutPage() {
                   required
                   value={address.city}
                   onChange={handleChange}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
@@ -152,7 +205,7 @@ export default function CheckoutPage() {
                   required
                   value={address.state}
                   onChange={handleChange}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
@@ -164,7 +217,7 @@ export default function CheckoutPage() {
                   required
                   value={address.postalCode}
                   onChange={handleChange}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
@@ -176,21 +229,58 @@ export default function CheckoutPage() {
                   required
                   value={address.country}
                   onChange={handleChange}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
             </div>
           </div>
 
-          {/* Payment Notice */}
-          <div className="bg-indigo-50/50 border border-indigo-100 rounded-3xl p-6 flex items-start space-x-4">
-            <Smartphone className="w-6 h-6 text-indigo-600 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-bold text-indigo-950">Simulated Indian Payment Gateway (UPI / NetBanking / Cards)</h4>
-              <p className="text-xs text-indigo-800 mt-1 leading-relaxed">
-                Orders are processed instantly in test mode. No real rupee transactions or debit cards are debited.
-                Completing will deduct live inventory stock and generate your simulated Indian order invoice.
-              </p>
+          {/* Payment Method Selector */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900 mb-4">Select Payment Method (India)</h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('UPI')}
+                className={`p-4 rounded-2xl border text-left transition-all ${
+                  paymentMethod === 'UPI'
+                    ? 'border-indigo-600 bg-indigo-50/50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <Smartphone className="w-5 h-5 text-indigo-600 mb-2" />
+                <h4 className="font-bold text-xs text-slate-900">UPI Instant Pay</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">GPay, PhonePe, Paytm QR</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('Card')}
+                className={`p-4 rounded-2xl border text-left transition-all ${
+                  paymentMethod === 'Card'
+                    ? 'border-indigo-600 bg-indigo-50/50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <CreditCard className="w-5 h-5 text-indigo-600 mb-2" />
+                <h4 className="font-bold text-xs text-slate-900">Debit / Credit Card</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">RuPay, Visa, Mastercard</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('NetBanking')}
+                className={`p-4 rounded-2xl border text-left transition-all ${
+                  paymentMethod === 'NetBanking'
+                    ? 'border-indigo-600 bg-indigo-50/50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <Building2 className="w-5 h-5 text-indigo-600 mb-2" />
+                <h4 className="font-bold text-xs text-slate-900">NetBanking</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">HDFC, SBI, ICICI & 50+ Banks</p>
+              </button>
             </div>
           </div>
         </div>
@@ -215,6 +305,14 @@ export default function CheckoutPage() {
               <span>Items Total</span>
               <span className="font-semibold text-slate-800">{formatINR(subtotal)}</span>
             </div>
+
+            {discount > 0 && (
+              <div className="flex justify-between text-emerald-600 font-semibold">
+                <span>Coupon ({couponCode})</span>
+                <span>- {formatINR(discount)}</span>
+              </div>
+            )}
+
             <div className="flex justify-between">
               <span>Delivery Fee</span>
               <span className="font-semibold text-slate-800">
@@ -237,7 +335,11 @@ export default function CheckoutPage() {
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 px-6 rounded-2xl flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transition-all disabled:opacity-50"
           >
             <Lock className="w-4 h-4" />
-            <span>{submitting ? 'Confirming UPI Payment...' : 'Pay & Complete Order (Simulated)'}</span>
+            <span>
+              {submitting
+                ? 'Confirming Payment...'
+                : `Pay ${formatINR(total)} via ${paymentMethod} (Simulated)`}
+            </span>
           </button>
         </div>
       </form>
